@@ -1,0 +1,169 @@
+    @commands.is_owner()
+    @commands.command()
+    async def crash(self, ctx):
+
+        removed_players = {}
+        players = {}
+        money_results = {}
+
+        view = JoinGame(players)
+        e = discord.Embed(title="Game Starting in 10 Seconds", description=f"Click **Join Game** below to join the game!", color=discord.Color.blue())
+        msg = await ctx.send(embed=e, view=view)
+
+        await asyncio.sleep(5)
+
+
+
+
+        e = discord.Embed(title="Current Amount: 1.0", color=discord.Color.blue())
+        e.set_footer(text=f"{len(removed_players)}/{len(players)} players have cashed out.")
+        view = CashOut(1, removed_players, players, money_results)
+        await msg.edit(embed=e, view=view)
+
+        amount_1 = random.randint(1, 5)
+        if amount_1 == 5:
+            amount_1 = random.randint(5, 15)
+            if amount_1 > 13:
+                amount_1 = random.randint(15, 20)
+
+        amount_2 = random.randint(0, 9)
+
+        num = f"{amount_1}.{amount_2}"
+
+        num = float(num)
+        amount = 1
+
+        print(num)
+
+        await asyncio.sleep(2)
+
+
+        reason = ""
+        while amount < num:
+            
+            
+            view = CashOut(round(amount, 2), removed_players, players, money_results)
+            players_sorted = {}
+            removed_players_sorted = {}
+
+            for key in sorted(players):
+                players_sorted[key] = players[key]
+
+            for key in sorted(view.removed_players):
+                removed_players_sorted[key] = view.removed_players[key]
+
+            players = players_sorted
+            removed_players = removed_players_sorted
+
+
+            if len(players) == 0:
+                reason = "np"
+                break
+            if players == removed_players:
+                reason = "aco"
+                break
+            amount += 0.1
+            amount = round(amount, 2)
+            e = discord.Embed(title=f"Current Amount: {round(amount, 2)}", color=discord.Color.blue())
+            e.set_footer(text=f"{len(removed_players)}/{len(players)} players have cashed out.")
+            await msg.edit(embed=e, view=view)
+            
+            await asyncio.sleep(2)
+            
+        payouts = ""
+        for p in removed_players:
+            payouts += f"<@{p}>: {money_results[p]}<:zcoin:837102743280812073>\n"
+        if reason == "aco":
+            e = discord.Embed(title="Game Over!", description=f"The game has ended because all players have cashed out.\nThe crash amount was **{num}**!\n\n{payouts}", color=discord.Color.blue())
+        if reason == "np":
+            e = discord.Embed(title="Game Over!", description=f"The game has ended because no players have joined.\nThe crash amount was **{num}**!\n\n{payouts}", color=discord.Color.blue())
+        elif reason == "":
+            e = discord.Embed(title="Game Over!", description=f"The number has crashed, and all players still in the game have lost their money!\nThe crash amount was **{num}**!\n\n{payouts}", color=discord.Color.blue())
+        await msg.edit(embed=e, view=None)
+
+
+class JoinGame(discord.ui.View):
+    def __init__(self, players):
+        super().__init__(timeout=None)
+        self.bet = None
+        self.players = players
+
+    @discord.ui.button(label="Join Game", style=discord.ButtonStyle.green)
+    async def join(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user in self.players:
+            await interaction.response.send_message("You are already in the game!", ephemeral=True)
+            return
+        
+        modal = Bet()
+        await interaction.response.send_modal(modal)
+
+        await modal.wait()
+
+        self.players[interaction.user.id] = int(modal.name.value)
+
+class CashOut(discord.ui.View):
+    def __init__(self, caa, removed_players, players, money_results):
+        super().__init__(timeout=None)
+        self.caa = caa
+        self.removed_players = removed_players
+        self.players = players
+        self.money_results = money_results
+
+    @discord.ui.button(label="Cash Out!", style=discord.ButtonStyle.green)
+    async def cashout(self, interaction: discord.Interaction, button: discord.ui.Button):
+        if interaction.user.id in self.removed_players:
+            await interaction.response.send_message("You have already cashed out!", ephemeral=True)
+            return
+        if interaction.user.id not in self.players:
+            await interaction.response.send_message("You are not in the game!", ephemeral=True)
+            return
+        self.removed_players[interaction.user.id] = self.players[interaction.user.id]
+
+        db = await aiosqlite.connect("money.db")
+        cursor = await db.cursor()
+
+        await cursor.execute(f"SELECT * from money WHERE member_id = {interaction.user.id}")
+        result = await cursor.fetchone()
+        wallet = result[1]
+
+        amount = wallet + round(self.caa*self.players[interaction.user.id] + self.players[interaction.user.id], 2)
+
+        
+        await cursor.execute(f"UPDATE money SET wallet = {amount} WHERE member_id = {interaction.user.id}")
+        
+        await interaction.response.send_message(f"You have successfully cashed out and made **{round(self.caa*self.players[interaction.user.id] + self.players[interaction.user.id], 2)}** <:zcoin:837102743280812073>!", ephemeral=True)
+
+        self.money_results[interaction.user.id] = round(self.caa*self.players[interaction.user.id] + self.players[interaction.user.id], 2)
+        
+
+        await db.commit()
+        await cursor.close()
+        await db.close()
+        
+
+class Bet(discord.ui.Modal, title="Bet"):
+    name = discord.ui.TextInput(label="How much would you like to bet?", placeholder="Z-Coin amount here.")
+
+    async def on_submit(self, interaction: discord.Interaction):
+
+        if int(self.name.value) > 400 or int(self.name.value) < 25:
+            await interaction.response.send_message("You can only bet a minimum of **25** <:zcoin:837102743280812073>, and a maximum of **400** <:zcoin:837102743280812073>.", ephemeral=True)
+            return
+
+        db = await aiosqlite.connect("money.db")
+        cursor = await db.cursor()
+
+        await cursor.execute(f"SELECT * from money WHERE member_id = {interaction.user.id}")
+        result = await cursor.fetchone()
+        wallet = result[1]
+
+        if int(self.name.value) > wallet:
+            await interaction.response.send_message("Game join cancelled due to insufficient funds.", ephemeral=True)
+            return
+        await cursor.execute(f"UPDATE money SET wallet = {wallet - int(self.name.value)} WHERE member_id = {interaction.user.id}")
+
+        await interaction.response.send_message("Bet placed.", ephemeral=True)
+        await db.commit()
+        await cursor.close()
+        await db.close()
+        
