@@ -40,6 +40,6 @@ discord.utils.setup_logging(level=logging.INFO, root=False)
 async def main():
 	async with bot:
 		bot.loop.create_task(load())
-		await bot.start("MTAzMTMwNjUwNDk5MDYyOTk3OA.Gq7l95.UVppOBLmRKh96leOGvHuI3FHSyLp3-_IqsifDE")
+		await bot.start()
 
 asyncio.run(main())
